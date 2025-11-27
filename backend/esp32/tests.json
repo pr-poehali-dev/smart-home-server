@@ -1,0 +1,43 @@
+{
+  "tests": [
+    {
+      "name": "Get all devices",
+      "method": "GET",
+      "path": "/?endpoint=devices",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Get ESP32 status",
+      "method": "GET",
+      "path": "/?endpoint=status",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Get specific device",
+      "method": "GET",
+      "path": "/?endpoint=device&id=1",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Toggle device",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "action": "toggle",
+        "device_id": "1"
+      },
+      "expectedStatus": 200
+    },
+    {
+      "name": "Update device value",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "action": "update_value",
+        "device_id": "1",
+        "value": 80
+      },
+      "expectedStatus": 200
+    }
+  ]
+}

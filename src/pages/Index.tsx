@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -15,34 +15,114 @@ interface Device {
   value?: number;
 }
 
-export default function Index() {
-  const [devices, setDevices] = useState<Device[]>([
-    { id: '1', name: 'Освещение', type: 'light', status: true, icon: 'Lightbulb', value: 75 },
-    { id: '2', name: 'Климат-контроль', type: 'climate', status: true, icon: 'Thermometer', value: 22 },
-    { id: '3', name: 'Безопасность', type: 'security', status: false, icon: 'Shield', value: 100 },
-    { id: '4', name: 'Жалюзи', type: 'blinds', status: false, icon: 'Blinds', value: 50 },
-    { id: '5', name: 'Музыка', type: 'audio', status: true, icon: 'Music', value: 60 },
-    { id: '6', name: 'Розетки', type: 'outlet', status: true, icon: 'Plug', value: 100 }
-  ]);
+const API_URL = 'https://functions.poehali.dev/df787944-953c-42bf-bf1a-fb832f40acbd';
 
-  const [esp32Status] = useState({
+export default function Index() {
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [esp32Status, setEsp32Status] = useState({
     connected: true,
     uptime: '12:34:56',
     signal: 85,
-    memory: 62
+    memory: 62,
+    ip_address: '192.168.1.100',
+    mac_address: 'A4:CF:12:8E:5F:23',
+    firmware_version: 'v2.4.1',
+    wifi_ssid: 'SmartHome_5G',
+    mqtt_server: 'mqtt.home.local:1883'
   });
+  const [loading, setLoading] = useState(true);
 
-  const toggleDevice = (id: string) => {
-    setDevices(devices.map(device => 
-      device.id === id ? { ...device, status: !device.status } : device
-    ));
+  useEffect(() => {
+    fetchDevices();
+    fetchESP32Status();
+    const interval = setInterval(() => {
+      fetchDevices();
+      fetchESP32Status();
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const fetchDevices = async () => {
+    try {
+      const response = await fetch(`${API_URL}?endpoint=devices`);
+      const data = await response.json();
+      setDevices(data.devices);
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching devices:', error);
+      setLoading(false);
+    }
   };
 
-  const updateDeviceValue = (id: string, value: number) => {
-    setDevices(devices.map(device => 
-      device.id === id ? { ...device, value } : device
-    ));
+  const fetchESP32Status = async () => {
+    try {
+      const response = await fetch(`${API_URL}?endpoint=status`);
+      const data = await response.json();
+      setEsp32Status(data.esp32);
+    } catch (error) {
+      console.error('Error fetching ESP32 status:', error);
+    }
   };
+
+  const toggleDevice = async (id: string) => {
+    try {
+      const response = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'toggle', device_id: id })
+      });
+      const data = await response.json();
+      if (data.success) {
+        setDevices(devices.map(device => 
+          device.id === id ? data.device : device
+        ));
+      }
+    } catch (error) {
+      console.error('Error toggling device:', error);
+    }
+  };
+
+  const updateDeviceValue = async (id: string, value: number) => {
+    try {
+      const response = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'update_value', device_id: id, value })
+      });
+      const data = await response.json();
+      if (data.success) {
+        setDevices(devices.map(device => 
+          device.id === id ? data.device : device
+        ));
+      }
+    } catch (error) {
+      console.error('Error updating device value:', error);
+    }
+  };
+
+  const handleRestart = async () => {
+    try {
+      const response = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'restart' })
+      });
+      const data = await response.json();
+      if (data.success) {
+        alert('ESP32 перезагружается...');
+      }
+    } catch (error) {
+      console.error('Error restarting ESP32:', error);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-[#0A0E27] via-[#0F1535] to-[#0A0E27] flex items-center justify-center">
+        <div className="text-primary text-2xl neon-glow">Подключение к ESP32...</div>
+      </div>
+    );
+  }
 
   const temperatureData = [20, 21, 22, 23, 22, 21, 22, 23, 24, 23, 22, 21];
   const energyData = [45, 52, 48, 65, 55, 70, 62, 58, 60, 55, 50, 48];
@@ -299,19 +379,19 @@ export default function Index() {
                   <div>
                     <label className="text-sm text-muted-foreground mb-2 block">IP адрес</label>
                     <div className="p-3 bg-muted/20 rounded-lg border border-primary/20 font-mono text-primary">
-                      192.168.1.100
+                      {esp32Status.ip_address}
                     </div>
                   </div>
                   <div>
                     <label className="text-sm text-muted-foreground mb-2 block">MAC адрес</label>
                     <div className="p-3 bg-muted/20 rounded-lg border border-primary/20 font-mono text-primary">
-                      A4:CF:12:8E:5F:23
+                      {esp32Status.mac_address}
                     </div>
                   </div>
                   <div>
                     <label className="text-sm text-muted-foreground mb-2 block">Версия прошивки</label>
                     <div className="p-3 bg-muted/20 rounded-lg border border-secondary/20 font-mono text-secondary">
-                      v2.4.1
+                      {esp32Status.firmware_version}
                     </div>
                   </div>
                 </div>
@@ -319,13 +399,13 @@ export default function Index() {
                   <div>
                     <label className="text-sm text-muted-foreground mb-2 block">WiFi SSID</label>
                     <div className="p-3 bg-muted/20 rounded-lg border border-primary/20 font-mono text-primary">
-                      SmartHome_5G
+                      {esp32Status.wifi_ssid}
                     </div>
                   </div>
                   <div>
                     <label className="text-sm text-muted-foreground mb-2 block">MQTT сервер</label>
                     <div className="p-3 bg-muted/20 rounded-lg border border-primary/20 font-mono text-primary">
-                      mqtt.home.local:1883
+                      {esp32Status.mqtt_server}
                     </div>
                   </div>
                   <div>
@@ -339,7 +419,10 @@ export default function Index() {
             </Card>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Card className="bg-card/50 backdrop-blur-sm border border-primary/30 hover:border-primary/50 transition-all p-4 cursor-pointer hover:scale-105 neon-border">
+              <Card 
+                className="bg-card/50 backdrop-blur-sm border border-primary/30 hover:border-primary/50 transition-all p-4 cursor-pointer hover:scale-105 neon-border"
+                onClick={handleRestart}
+              >
                 <div className="flex items-center gap-3">
                   <Icon name="RotateCw" className="text-primary" size={24} />
                   <div>
