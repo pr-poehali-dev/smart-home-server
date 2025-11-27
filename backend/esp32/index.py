@@ -9,6 +9,7 @@ import json
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, asdict
 from enum import Enum
+from datetime import datetime
 
 
 class DeviceType(str, Enum):
@@ -43,6 +44,17 @@ class ESP32Status:
     mqtt_server: str
 
 
+@dataclass
+class LogEntry:
+    timestamp: str
+    level: str
+    action: str
+    device_id: Optional[str]
+    device_name: Optional[str]
+    message: str
+    request_id: str
+
+
 devices_storage: List[Device] = [
     Device(id='1', name='Освещение', type=DeviceType.LIGHT, status=True, icon='Lightbulb', value=75),
     Device(id='2', name='Климат-контроль', type=DeviceType.CLIMATE, status=True, icon='Thermometer', value=22),
@@ -63,6 +75,24 @@ esp32_status = ESP32Status(
     wifi_ssid='SmartHome_5G',
     mqtt_server='mqtt.home.local:1883'
 )
+
+logs_storage: List[LogEntry] = []
+
+
+def add_log(level: str, action: str, message: str, request_id: str, device_id: Optional[str] = None, device_name: Optional[str] = None):
+    timestamp = datetime.utcnow().isoformat() + 'Z'
+    log = LogEntry(
+        timestamp=timestamp,
+        level=level,
+        action=action,
+        device_id=device_id,
+        device_name=device_name,
+        message=message,
+        request_id=request_id
+    )
+    logs_storage.append(log)
+    if len(logs_storage) > 100:
+        logs_storage.pop(0)
 
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -91,6 +121,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         endpoint = query_params.get('endpoint', 'devices')
         
         if endpoint == 'devices':
+            add_log('INFO', 'GET_DEVICES', 'Запрос списка устройств', context.request_id)
             return {
                 'statusCode': 200,
                 'headers': headers,
@@ -102,6 +133,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             }
         
         elif endpoint == 'status':
+            add_log('INFO', 'GET_STATUS', 'Запрос статуса ESP32', context.request_id)
             return {
                 'statusCode': 200,
                 'headers': headers,
@@ -115,6 +147,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         elif endpoint == 'device':
             device_id = query_params.get('id')
             if not device_id:
+                add_log('ERROR', 'GET_DEVICE', 'Device ID не указан', context.request_id)
                 return {
                     'statusCode': 400,
                     'headers': headers,
@@ -124,6 +157,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             
             device = next((d for d in devices_storage if d.id == device_id), None)
             if not device:
+                add_log('ERROR', 'GET_DEVICE', f'Устройство {device_id} не найдено', context.request_id, device_id)
                 return {
                     'statusCode': 404,
                     'headers': headers,
@@ -131,10 +165,24 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     'isBase64Encoded': False
                 }
             
+            add_log('INFO', 'GET_DEVICE', f'Запрос информации об устройстве {device.name}', context.request_id, device_id, device.name)
             return {
                 'statusCode': 200,
                 'headers': headers,
                 'body': json.dumps(asdict(device)),
+                'isBase64Encoded': False
+            }
+        
+        elif endpoint == 'logs':
+            limit = int(query_params.get('limit', '50'))
+            logs = logs_storage[-limit:] if limit > 0 else logs_storage
+            return {
+                'statusCode': 200,
+                'headers': headers,
+                'body': json.dumps({
+                    'logs': [asdict(log) for log in reversed(logs)],
+                    'total': len(logs_storage)
+                }),
                 'isBase64Encoded': False
             }
     
@@ -147,6 +195,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             device = next((d for d in devices_storage if d.id == device_id), None)
             
             if not device:
+                add_log('ERROR', 'TOGGLE_DEVICE', f'Устройство {device_id} не найдено', context.request_id, device_id)
                 return {
                     'statusCode': 404,
                     'headers': headers,
@@ -154,7 +203,9 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     'isBase64Encoded': False
                 }
             
+            old_status = device.status
             device.status = not device.status
+            add_log('SUCCESS', 'TOGGLE_DEVICE', f'Устройство {device.name}: {"включено" if device.status else "выключено"}', context.request_id, device_id, device.name)
             
             return {
                 'statusCode': 200,
@@ -172,6 +223,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             new_value = body_data.get('value')
             
             if new_value is None:
+                add_log('ERROR', 'UPDATE_VALUE', 'Значение не указано', context.request_id, device_id)
                 return {
                     'statusCode': 400,
                     'headers': headers,
@@ -182,6 +234,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             device = next((d for d in devices_storage if d.id == device_id), None)
             
             if not device:
+                add_log('ERROR', 'UPDATE_VALUE', f'Устройство {device_id} не найдено', context.request_id, device_id)
                 return {
                     'statusCode': 404,
                     'headers': headers,
@@ -189,7 +242,9 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     'isBase64Encoded': False
                 }
             
+            old_value = device.value
             device.value = new_value
+            add_log('SUCCESS', 'UPDATE_VALUE', f'Устройство {device.name}: значение изменено с {old_value} на {new_value}', context.request_id, device_id, device.name)
             
             return {
                 'statusCode': 200,
@@ -203,6 +258,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             }
         
         elif action == 'restart':
+            add_log('WARNING', 'RESTART', 'Инициирована перезагрузка ESP32', context.request_id)
             return {
                 'statusCode': 200,
                 'headers': headers,
